@@ -1,0 +1,16 @@
+{
+  "object": {
+    "pins": [
+      {
+        "package": "AsyncStream",
+        "repositoryURL": "https://github.com/AppAccount/AsyncStream",
+        "state": {
+          "branch": null,
+          "revision": "e4c10d6a3182a7533af95bff12814cae77b49180",
+          "version": "1.0.1"
+        }
+      }
+    ]
+  },
+  "version": 1
+}
