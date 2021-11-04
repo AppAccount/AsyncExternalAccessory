@@ -2,57 +2,114 @@ import XCTest
 import ExternalAccessory
 @testable import AsyncExternalAccessory
 
+extension String: Error {}
+
 final class AsyncExternalAccessoryTests: XCTestCase {
-    static var streamBufferSize = 4096
-    var inputStream: InputStream!
-    var outputStream: OutputStream!
-    var runLoopTask: Task<(), Error>?
-    var expectation: XCTestExpectation?
-    let mock = AccessoryMock(name: "EMAN", modelNumber: "LEDOM", serialNumber: "001", manufacturer: "GFM", hardwareRevision: "1.0", protocolStrings: ["com.example.eap"], connectionID: Int.random(in: 0..<Int.max))
+    var manager: ExternalAccessoryManager!
+    var accessory: MockableAccessory!
+    var shouldOpenCompletion: ((MockableAccessory)->Bool)?
+    var didOpenCompletion: ((MockableAccessory, AsyncThrowingStream<Bool, Error>)->())?
+
+    func makeMock() -> AccessoryMock {
+        AccessoryMock(name: "EMAN", modelNumber: "LEDOM", serialNumber: "001", manufacturer: "GFM", hardwareRevision: "1.0", protocolStrings: ["com.example.eap"], connectionID: Int.random(in: 0..<Int.max))
+    }
     
-    override func setUp() {
+    func makeAccessory(_ mock: AccessoryMock) throws -> MockableAccessory {
+        let streamBufferSize = 4096
         var optionalInputStream: InputStream?
         var optionalOutputStream: OutputStream?
-        Stream.getBoundStreams(withBufferSize: Self.streamBufferSize, inputStream: &optionalInputStream, outputStream: &optionalOutputStream)
-        self.inputStream = optionalInputStream!
-        self.outputStream = optionalOutputStream!
-        runLoopTask = Task {
-            while true {
-                try Task.checkCancellation()
-                RunLoop.current.run(until: Date())
-                await Task.yield()
-            }
+        Stream.getBoundStreams(withBufferSize: streamBufferSize, inputStream: &optionalInputStream, outputStream: &optionalOutputStream)
+        guard let inputStream = optionalInputStream, let outputStream = optionalOutputStream else {
+            throw "can't initialize bound streams"
         }
+        return MockableAccessory(makeMock(), inputStream: inputStream, outputStream: outputStream)
+    }
+    
+    override func setUp() async throws {
+        accessory = try makeAccessory(makeMock())
+        self.manager = ExternalAccessoryManager()
+        await manager.set(self)
     }
     
     override func tearDown() {
-        runLoopTask?.cancel()
+        shouldOpenCompletion = nil
     }
     
-    func testActorColdPlug() async {
-        expectation = self.expectation(description: "open session")
-        let manager = ExternalAccessoryManager()
-        await manager.set(self)
-        let accessory = MockableAccessory(mock, inputStream: self.inputStream, outputStream: self.outputStream)
-        await manager.connectToPresentAccessories([accessory])
-        await waitForExpectations(timeout: 2.0) { error in
-            if let error = error {
-                print(error)
+    func testColdPlug() async {
+        await withTaskGroup(of: MockableAccessory.self) { taskGroup in
+            taskGroup.addTask {
+                await withUnsafeContinuation({ cont in
+                    self.shouldOpenCompletion = { accessory in
+                        cont.resume(returning: accessory)
+                        return true
+                    }
+                })
+            }
+            taskGroup.addTask {
+                await withUnsafeContinuation({ cont in
+                    self.didOpenCompletion = { accessory, _ in
+                        cont.resume(returning: accessory)
+                    }
+                })
+            }
+            taskGroup.addTask {
+                await self.manager.connectToPresentAccessories([self.accessory])
+                return self.accessory
+            }
+            if await taskGroup.allSatisfy({ $0 == self.accessory }) != true {
+                XCTFail()
             }
         }
     }
     
-    func testActorHotPlug() async {
-        expectation = self.expectation(description: "open session")
-        let manager = ExternalAccessoryManager()
-        await manager.set(self)
-        await manager.listen()
-        let accessory = MockableAccessory(mock, inputStream: self.inputStream, outputStream: self.outputStream)
-        let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: accessory])
-        await manager.accessoryConnect(notification)
-        await waitForExpectations(timeout: 2.0) { error in
-            if let error = error {
-                print(error)
+    func testColdPlugShouldntOpen() async {
+        self.didOpenCompletion = { _, _ in
+            XCTFail("shouldn't be called")
+        }
+        await withTaskGroup(of: MockableAccessory.self) { taskGroup in
+            taskGroup.addTask {
+                await withUnsafeContinuation({ cont in
+                    self.shouldOpenCompletion = { accessory in
+                        cont.resume(returning: accessory)
+                        return false
+                    }
+                })
+            }
+            taskGroup.addTask {
+                await self.manager.connectToPresentAccessories([self.accessory])
+                return self.accessory
+            }
+            if await taskGroup.allSatisfy({ $0 == self.accessory }) != true {
+                XCTFail()
+            }
+        }
+    }
+    
+    func testHotPlug() async {
+        await withTaskGroup(of: MockableAccessory.self) { taskGroup in
+            taskGroup.addTask {
+                await withUnsafeContinuation({ cont in
+                    self.shouldOpenCompletion = { accessory in
+                        cont.resume(returning: accessory)
+                        return true
+                    }
+                })
+            }
+            taskGroup.addTask {
+                await withUnsafeContinuation({ cont in
+                    self.didOpenCompletion = { accessory, _ in
+                        cont.resume(returning: accessory)
+                    }
+                })
+            }
+            taskGroup.addTask {
+                await self.manager.listen()
+                let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.accessory as Any])
+                await self.manager.accessoryConnect(notification)
+                return self.accessory
+            }
+            if await taskGroup.allSatisfy({ $0 == self.accessory }) != true {
+                XCTFail()
             }
         }
     }
@@ -60,22 +117,9 @@ final class AsyncExternalAccessoryTests: XCTestCase {
 
 extension AsyncExternalAccessoryTests: AccessoryConnectionDelegate {
     func shouldOpenSession(for accessory: MockableAccessory) -> Bool {
-        print(#function)
-        expectation?.fulfill()
-        return true
+        shouldOpenCompletion?(accessory) ?? false
     }
     func sessionDidOpen(for accessory: MockableAccessory, writeReady: AsyncThrowingStream<Bool, Error>) {
-        print(#function)
-        Task {
-            do {
-                for try await ready in writeReady {
-                    print("ready \(ready)")
-                }
-            } catch {
-                
-            }
-            print("writeReady stream finished")
-        }
-        return
+        didOpenCompletion?(accessory, writeReady)
     }
 }
