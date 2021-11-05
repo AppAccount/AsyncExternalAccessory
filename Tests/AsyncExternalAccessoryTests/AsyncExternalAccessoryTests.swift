@@ -97,6 +97,45 @@ final class AsyncExternalAccessoryTests: XCTestCase {
         }
     }
     
+    func testMultiAccessoryColdPlug() async throws {
+        let accessoryA = try makeAccessory(makeMock())
+        let accessoryB = try makeAccessory(makeMock())
+        let accessories = [accessoryA, accessoryB]
+        await withTaskGroup(of: Void.self) { taskGroup in
+            taskGroup.addTask {
+                var shouldOpenAccessories = [MockableAccessory]()
+                let shouldOpenStream = AsyncStream<Void> { cont in
+                    self.shouldOpenCompletion = { accessory in
+                        shouldOpenAccessories.append(accessory)
+                        if shouldOpenAccessories.count == accessories.count {
+                            cont.finish()
+                        }
+                        return true
+                    }
+                }
+                for await _ in shouldOpenStream {}
+                XCTAssert(Set(shouldOpenAccessories) == Set(accessories))
+            }
+            taskGroup.addTask {
+                var didOpenAccessories = [MockableAccessory]()
+                let didOpenStream = AsyncStream<Void> { cont in
+                    self.didOpenCompletion = { accessory, _ in
+                        didOpenAccessories.append(accessory)
+                        if didOpenAccessories.count == accessories.count {
+                            cont.finish()
+                        }
+                    }
+                }
+                for await _ in didOpenStream {}
+                XCTAssert(Set(didOpenAccessories) == Set(accessories))
+            }
+            taskGroup.addTask {
+                await self.manager.connectToPresentAccessories(accessories)
+            }
+            await taskGroup.waitForAll()
+        }
+    }
+    
     func testHotPlug() async {
         await withTaskGroup(of: MockableAccessory.self) { taskGroup in
             taskGroup.addTask {
