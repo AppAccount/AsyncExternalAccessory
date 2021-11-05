@@ -9,7 +9,8 @@ final class AsyncExternalAccessoryTests: XCTestCase {
     var accessory: MockableAccessory!
     var shouldOpenCompletion: ((MockableAccessory)->Bool)?
     var didOpenCompletion: ((MockableAccessory, AsyncThrowingStream<Bool, Error>)->())?
-
+    var timeoutTask: Task<(), Never>!
+    
     func makeMock() -> AccessoryMock {
         AccessoryMock(name: "EMAN", modelNumber: "LEDOM", serialNumber: "001", manufacturer: "GFM", hardwareRevision: "1.0", protocolStrings: ["com.example.eap"], connectionID: Int.random(in: 0..<Int.max))
     }
@@ -26,13 +27,24 @@ final class AsyncExternalAccessoryTests: XCTestCase {
     }
     
     override func setUp() async throws {
+        continueAfterFailure = false
         accessory = try makeAccessory(makeMock())
         self.manager = ExternalAccessoryManager()
         await manager.set(self)
+        timeoutTask = Task {
+            do {
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+            } catch {
+                return
+            }
+            XCTFail("timed out")
+        }
     }
     
     override func tearDown() {
         shouldOpenCompletion = nil
+        didOpenCompletion = nil
+        timeoutTask.cancel()
     }
     
     func testColdPlug() async {
