@@ -50,19 +50,19 @@ final class AsyncExternalAccessoryTests: XCTestCase {
     func testColdPlug() async {
         await withTaskGroup(of: MockableAccessory.self) { taskGroup in
             taskGroup.addTask {
-                await withUnsafeContinuation({ cont in
+                await withUnsafeContinuation { cont in
                     self.shouldOpenCompletion = { accessory in
                         cont.resume(returning: accessory)
                         return true
                     }
-                })
+                }
             }
             taskGroup.addTask {
-                await withUnsafeContinuation({ cont in
+                await withUnsafeContinuation { cont in
                     self.didOpenCompletion = { accessory, _ in
                         cont.resume(returning: accessory)
                     }
-                })
+                }
             }
             taskGroup.addTask {
                 await self.manager.connectToPresentAccessories([self.accessory])
@@ -80,12 +80,12 @@ final class AsyncExternalAccessoryTests: XCTestCase {
         }
         await withTaskGroup(of: MockableAccessory.self) { taskGroup in
             taskGroup.addTask {
-                await withUnsafeContinuation({ cont in
+                await withUnsafeContinuation { cont in
                     self.shouldOpenCompletion = { accessory in
                         cont.resume(returning: accessory)
                         return false
                     }
-                })
+                }
             }
             taskGroup.addTask {
                 await self.manager.connectToPresentAccessories([self.accessory])
@@ -100,19 +100,19 @@ final class AsyncExternalAccessoryTests: XCTestCase {
     func testHotPlug() async {
         await withTaskGroup(of: MockableAccessory.self) { taskGroup in
             taskGroup.addTask {
-                await withUnsafeContinuation({ cont in
+                await withUnsafeContinuation { cont in
                     self.shouldOpenCompletion = { accessory in
                         cont.resume(returning: accessory)
                         return true
                     }
-                })
+                }
             }
             taskGroup.addTask {
-                await withUnsafeContinuation({ cont in
+                await withUnsafeContinuation { cont in
                     self.didOpenCompletion = { accessory, _ in
                         cont.resume(returning: accessory)
                     }
-                })
+                }
             }
             taskGroup.addTask {
                 await self.manager.listen()
