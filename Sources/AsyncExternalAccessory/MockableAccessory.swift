@@ -31,10 +31,10 @@ public struct MockableAccessory: Hashable {
     init(_ accessory: EAAccessory) {
         self.accessory = .ea(accessory)
     }
-    init(_ accessory: AccessoryMock) {
+    public init(_ accessory: AccessoryMock) {
         self.accessory = .mock(accessory)
     }
-    init?(from notification: NSNotification) {
+    public init?(from notification: NSNotification) {
         if let accessory = notification.userInfo![EAAccessoryKey] as? AccessoryMock {
             self.accessory = .mock(accessory)
         }

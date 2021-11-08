@@ -138,6 +138,27 @@ final class AsyncExternalAccessoryTests: XCTestCase {
         }
     }
     
+    func testColdPlugUnplug() async {
+        var writeReadyStream: AsyncThrowingStream<Bool, Error>?
+        self.shouldOpenCompletion = { accessory in
+            return true
+        }
+        self.didOpenCompletion = { _, writeReady in
+            writeReadyStream = writeReady
+        }
+        await self.manager.connectToPresentAccessories([self.accessory])
+        await self.manager.listen()
+        do {
+            let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.mock as Any])
+            await self.manager.accessoryDisconnect(notification)
+            for try await ready in writeReadyStream! {
+                XCTAssert(ready == true)
+            }
+        } catch {
+            XCTFail()
+        }
+    }
+    
     func testHotPlug() async {
         await withTaskGroup(of: MockableAccessory.self) { taskGroup in
             taskGroup.addTask {
@@ -163,6 +184,38 @@ final class AsyncExternalAccessoryTests: XCTestCase {
             }
             if await taskGroup.allSatisfy({ $0 == self.accessory }) != true {
                 XCTFail()
+            }
+        }
+    }
+    
+    func testHotPlugUnplug() async {
+        await self.manager.listen()
+        await withTaskGroup(of: Void.self) { taskGroup in
+            taskGroup.addTask {
+                await withUnsafeContinuation { cont in
+                    self.shouldOpenCompletion = { accessory in
+                        cont.resume()
+                        return true
+                    }
+                }
+            }
+            taskGroup.addTask {
+                let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.mock as Any])
+                await self.manager.accessoryConnect(notification)
+            }
+            taskGroup.addTask {
+                let writeReadyStream = await withUnsafeContinuation { cont in
+                    self.didOpenCompletion = { _, writeReady in
+                        cont.resume(returning: writeReady)
+                    }
+                }
+                do {
+                    let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.mock as Any])
+                    await self.manager.accessoryDisconnect(notification)
+                    for try await _ in writeReadyStream {}
+                } catch {
+                    XCTFail()
+                }
             }
         }
     }

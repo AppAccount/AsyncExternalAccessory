@@ -23,7 +23,7 @@
 
 import ExternalAccessory
 
-struct AccessoryMock {
+public struct AccessoryMock {
     let name: String
     let modelNumber: String
     let serialNumber: String
@@ -34,7 +34,7 @@ struct AccessoryMock {
     let inputStream: InputStream
     let outputStream: OutputStream
     
-    init(name: String, modelNumber: String, serialNumber: String, manufacturer: String, hardwareRevision: String, protocolStrings: [String], connectionID: Int, inputStream: InputStream, outputStream: OutputStream) {
+    public init(name: String, modelNumber: String, serialNumber: String, manufacturer: String, hardwareRevision: String, protocolStrings: [String], connectionID: Int, inputStream: InputStream, outputStream: OutputStream) {
         self.name = name
         self.modelNumber = modelNumber
         self.serialNumber = serialNumber

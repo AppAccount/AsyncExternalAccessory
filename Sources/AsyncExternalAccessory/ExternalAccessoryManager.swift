@@ -39,7 +39,7 @@ public actor ExternalAccessoryManager: NSObject {
     private var map = [MockableAccessory: AsyncStreamPair]()
     
     @MainActor
-    @objc dynamic func accessoryConnect(_ notificaton: NSNotification) {
+    @objc dynamic public func accessoryConnect(_ notificaton: NSNotification) {
         print(#function)
         if let accessory = MockableAccessory.init(from: notificaton) {
             Task.detached {
@@ -49,7 +49,7 @@ public actor ExternalAccessoryManager: NSObject {
     }
     
     @MainActor
-    @objc dynamic func accessoryDisconnect(_ notificaton: NSNotification) {
+    @objc dynamic public func accessoryDisconnect(_ notificaton: NSNotification) {
         print(#function)
         if let accessory = MockableAccessory.init(from: notificaton) {
             Task.detached {
