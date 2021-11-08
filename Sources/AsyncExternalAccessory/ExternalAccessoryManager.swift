@@ -62,20 +62,18 @@ public actor ExternalAccessoryManager: NSObject {
         self.delegate = delegate
     }
     
-    #if targetEnvironment(simulator)
     public func connectToPresentAccessories(_ list: [MockableAccessory]) async {
         for accessory in list {
             await connect(accessory)
         }
     }
-    #else
+    
     public func connectToPresentAccessories() async {
         let list = EAAccessoryManager.shared().connectedAccessories
         for accessory in list {
             await connect(MockableAccessory(accessory))
         }
     }
-    #endif
     
     public func listen() async {
         NotificationCenter.default.addObserver(self, selector: #selector(accessoryConnect(_:)), name: .EAAccessoryDidConnect, object: nil)

@@ -6,16 +6,13 @@ extension String: Error {}
 
 final class AsyncExternalAccessoryTests: XCTestCase {
     var manager: ExternalAccessoryManager!
+    var mock: AccessoryMock!
     var accessory: MockableAccessory!
     var shouldOpenCompletion: ((MockableAccessory)->Bool)?
     var didOpenCompletion: ((MockableAccessory, AsyncThrowingStream<Bool, Error>)->())?
     var timeoutTask: Task<(), Never>!
     
-    func makeMock() -> AccessoryMock {
-        AccessoryMock(name: "EMAN", modelNumber: "LEDOM", serialNumber: "001", manufacturer: "GFM", hardwareRevision: "1.0", protocolStrings: ["com.example.eap"], connectionID: Int.random(in: 0..<Int.max))
-    }
-    
-    func makeAccessory(_ mock: AccessoryMock) throws -> MockableAccessory {
+    func makeMock() throws -> AccessoryMock {
         let streamBufferSize = 4096
         var optionalInputStream: InputStream?
         var optionalOutputStream: OutputStream?
@@ -23,12 +20,17 @@ final class AsyncExternalAccessoryTests: XCTestCase {
         guard let inputStream = optionalInputStream, let outputStream = optionalOutputStream else {
             throw "can't initialize bound streams"
         }
-        return MockableAccessory(makeMock(), inputStream: inputStream, outputStream: outputStream)
+        return AccessoryMock(name: "EMAN", modelNumber: "LEDOM", serialNumber: "001", manufacturer: "GFM", hardwareRevision: "1.0", protocolStrings: ["com.example.eap"], connectionID: Int.random(in: 0..<Int.max), inputStream: inputStream, outputStream: outputStream)
+    }
+    
+    func makeAccessory(_ mock: AccessoryMock) throws -> MockableAccessory {
+        return MockableAccessory(mock)
     }
     
     override func setUp() async throws {
         continueAfterFailure = false
-        accessory = try makeAccessory(makeMock())
+        mock = try makeMock()
+        accessory = try makeAccessory(mock)
         self.manager = ExternalAccessoryManager()
         await manager.set(self)
         timeoutTask = Task {
@@ -155,7 +157,7 @@ final class AsyncExternalAccessoryTests: XCTestCase {
             }
             taskGroup.addTask {
                 await self.manager.listen()
-                let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.accessory as Any])
+                let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.mock as Any])
                 await self.manager.accessoryConnect(notification)
                 return self.accessory
             }

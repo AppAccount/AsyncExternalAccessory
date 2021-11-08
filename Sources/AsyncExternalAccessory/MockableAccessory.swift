@@ -24,36 +24,34 @@
 import ExternalAccessory
 
 public struct MockableAccessory: Hashable {
-    #if targetEnvironment(simulator)
-    let accessory: AccessoryMock
-    let inputStream: InputStream
-    let outputStream: OutputStream
-    init(_ accessory: AccessoryMock, inputStream: InputStream, outputStream: OutputStream) {
-        self.accessory = accessory
-        self.inputStream = inputStream
-        self.outputStream = outputStream
+    enum ExternalAccessoryOrMock: Equatable, Hashable {
+        case ea(EAAccessory), mock(AccessoryMock)
     }
-    init?(from notification: NSNotification) {
-        guard let accessory = notification.userInfo![EAAccessoryKey] as? MockableAccessory else {
-            return nil
-        }
-        self = accessory
-    }
-    func getStreams()-> (InputStream, OutputStream)? {
-        return (inputStream, outputStream)
-    }
-    #else
-    let accessory: EAAccessory
+    let accessory: ExternalAccessoryOrMock
     init(_ accessory: EAAccessory) {
-        self.accessory = accessory
+        self.accessory = .ea(accessory)
+    }
+    init(_ accessory: AccessoryMock) {
+        self.accessory = .mock(accessory)
     }
     init?(from notification: NSNotification) {
-        guard let accessory = notification.userInfo![EAAccessoryKey] as? EAAccessory else {
+        if let accessory = notification.userInfo![EAAccessoryKey] as? AccessoryMock {
+            self.accessory = .mock(accessory)
+        }
+        else if let accessory = notification.userInfo![EAAccessoryKey] as? EAAccessory {
+            self.accessory = .ea(accessory)
+        } else {
             return nil
         }
-        self.accessory = accessory
     }
     func getStreams()-> (InputStream, OutputStream)? {
+        switch accessory {
+        case .ea(let accessory): return getEAStreams(accessory)
+        case .mock(let accessory): return (accessory.inputStream, accessory.outputStream)
+        }
+    }
+    
+    func getEAStreams(_ accessory: EAAccessory)-> (InputStream, OutputStream)? {
         for protocolString in accessory.protocolStrings {
             if let session = EASession(accessory: accessory, forProtocol: protocolString),
                let inputStream = session.inputStream,
@@ -63,5 +61,4 @@ public struct MockableAccessory: Hashable {
         }
         return nil
     }
-    #endif
 }

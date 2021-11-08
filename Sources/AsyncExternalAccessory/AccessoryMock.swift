@@ -23,8 +23,7 @@
 
 import ExternalAccessory
 
-#if targetEnvironment(simulator)
-public struct AccessoryMock {
+struct AccessoryMock {
     let name: String
     let modelNumber: String
     let serialNumber: String
@@ -32,18 +31,10 @@ public struct AccessoryMock {
     let hardwareRevision: String
     let protocolStrings: [String]
     let connectionID: Int
+    let inputStream: InputStream
+    let outputStream: OutputStream
     
-    init(accessory: EAAccessory) {
-        self.name = accessory.name
-        self.modelNumber = accessory.modelNumber
-        self.manufacturer = accessory.manufacturer
-        self.serialNumber = accessory.serialNumber
-        self.hardwareRevision = accessory.hardwareRevision
-        self.protocolStrings = accessory.protocolStrings
-        self.connectionID = accessory.connectionID
-    }
-    // alternate initializer for testability
-    public init(name: String, modelNumber: String, serialNumber: String, manufacturer: String, hardwareRevision: String, protocolStrings: [String], connectionID: Int) {
+    init(name: String, modelNumber: String, serialNumber: String, manufacturer: String, hardwareRevision: String, protocolStrings: [String], connectionID: Int, inputStream: InputStream, outputStream: OutputStream) {
         self.name = name
         self.modelNumber = modelNumber
         self.serialNumber = serialNumber
@@ -51,6 +42,8 @@ public struct AccessoryMock {
         self.hardwareRevision = hardwareRevision
         self.protocolStrings = protocolStrings
         self.connectionID = connectionID
+        self.inputStream = inputStream
+        self.outputStream = outputStream
     }
 }
 
@@ -72,4 +65,3 @@ extension AccessoryMock: Hashable {
         hasher.combine(name)
     }
 }
-#endif
