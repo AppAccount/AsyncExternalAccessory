@@ -24,10 +24,14 @@
 import ExternalAccessory
 import AsyncStream
 
+public enum ExternalAccessoryManagerError: Error {
+    case UnknownAccessory
+}
+
 public protocol AccessoryConnectionDelegate: AnyObject {
     func shouldOpenSession(for accessory: MockableAccessory) -> Bool
     // writeReady stream will finish, signalling disconnect
-    func sessionDidOpen(for accessory: MockableAccessory, writeReady: AsyncThrowingStream<Bool, Error>)
+    func sessionDidOpen(for accessory: MockableAccessory, writeReady: AsyncThrowingStream<Bool, Error>, readData: AsyncThrowingStream<Data, Error>)
 }
 
 public actor ExternalAccessoryManager: NSObject {
@@ -81,11 +85,11 @@ public actor ExternalAccessoryManager: NSObject {
         EAAccessoryManager.shared().registerForLocalNotifications()
     }
     
-    public func write(_ data: Data, to accessory: MockableAccessory) async {
+    public func write(_ data: Data, to accessory: MockableAccessory) async throws -> Int {
         guard let streamPair = map[accessory] else {
-            return
+            throw ExternalAccessoryManagerError.UnknownAccessory
         }
-        let bytesWritten = try? await streamPair.output.write(data)
+        return try await streamPair.output.write(data)
     }
     
     @MainActor
@@ -106,19 +110,9 @@ public actor ExternalAccessoryManager: NSObject {
             return
         }
         let readDataAsyncStream = await session.input.getReadDataStream()
-        Task.detached {
-            do {
-                for try await data in readDataAsyncStream {
-                    print("received \(data.count)B message")
-                }
-                print("Input AsyncStream finish was called")
-            } catch {
-                print("Input AsyncStream throw was called")
-            }
-        }
         let writeReadyAsyncStream = await session.output.getSpaceAvailableStream()
         map[accessory] = session
-        delegate?.sessionDidOpen(for: accessory, writeReady: writeReadyAsyncStream)
+        delegate?.sessionDidOpen(for: accessory, writeReady: writeReadyAsyncStream, readData: readDataAsyncStream)
     }
     
     private func disconnect(_ accessory: MockableAccessory) {
