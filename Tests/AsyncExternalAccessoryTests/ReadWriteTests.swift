@@ -31,7 +31,7 @@ final class ReadWriteTests: XCTestCase {
     var mock: AccessoryMock!
     var accessory: MockableAccessory!
     var shouldOpenCompletion: ((MockableAccessory)->Bool)?
-    var didOpenCompletion: ((MockableAccessory, AsyncThrowingStream<Bool, Error>, AsyncThrowingStream<Data, Error>)->())?
+    var didOpenCompletion: ((MockableAccessory, AsyncThrowingStream<Bool, Error>?, AsyncThrowingStream<Data, Error>?)->())?
     var writeReadyStream: AsyncThrowingStream<Bool, Error>?
     var readDataStream: AsyncThrowingStream<Data, Error>?
     var timeoutTask: Task<(), Never>!
@@ -113,7 +113,7 @@ extension ReadWriteTests: AccessoryConnectionDelegate {
     func shouldOpenSession(for accessory: MockableAccessory) -> Bool {
         shouldOpenCompletion?(accessory) ?? false
     }
-    func sessionDidOpen(for accessory: MockableAccessory, writeReady: AsyncThrowingStream<Bool, Error>, readData: AsyncThrowingStream<Data, Error>) {
-        didOpenCompletion?(accessory, writeReady, readData)
+    func sessionDidOpen(with accessory: MockableAccessory, writeReadyStream: AsyncThrowingStream<Bool, Error>?, readDataStream: AsyncThrowingStream<Data, Error>?) {
+        didOpenCompletion?(accessory, writeReadyStream, readDataStream)
     }
 }

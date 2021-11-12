@@ -26,18 +26,24 @@ import AsyncStream
 
 public enum ExternalAccessoryManagerError: Error {
     case UnknownAccessory
+    case StreamNotOpen
 }
 
+/// A delegate to listen for accessory connection events.
 public protocol AccessoryConnectionDelegate: AnyObject {
+    /// Inspect the arriving accessory and determine whether to open read and write sessions for it.
+    /// - Return `true` to request that session be opened, `false` to ignore.
+    /// - If `true` is returned,`sessionDidOpen` will be called next.
     func shouldOpenSession(for accessory: MockableAccessory) -> Bool
-    // writeReady stream will finish, signalling disconnect
-    func sessionDidOpen(for accessory: MockableAccessory, writeReady: AsyncThrowingStream<Bool, Error>, readData: AsyncThrowingStream<Data, Error>)
+    /// Receive write backpressure stream and read data stream. Both are optional, reflecting the behavior of the underlying EASession.
+    /// - writeReadyStream will finish when the accessory has disconnected.
+    func sessionDidOpen(with accessory: MockableAccessory, writeReadyStream: AsyncThrowingStream<Bool, Error>?, readDataStream: AsyncThrowingStream<Data, Error>?)
 }
 
 public actor ExternalAccessoryManager: NSObject {
     struct AsyncStreamPair {
-        let input: InputStreamActor
-        let output: OutputStreamActor
+        let input: InputStreamActor?
+        let output: OutputStreamActor?
     }
     private weak var delegate: AccessoryConnectionDelegate?
     private var map = [MockableAccessory: AsyncStreamPair]()
@@ -89,30 +95,43 @@ public actor ExternalAccessoryManager: NSObject {
         guard let streamPair = map[accessory] else {
             throw ExternalAccessoryManagerError.UnknownAccessory
         }
-        return try await streamPair.output.write(data)
+        guard let output = streamPair.output else {
+            throw ExternalAccessoryManagerError.StreamNotOpen
+        }
+        return try await output.write(data)
     }
     
     @MainActor
     private func openSession(_ accessory: MockableAccessory) -> AsyncStreamPair? {
-        guard let (inputStream, outputStream) = accessory.getStreams() else {
+        guard let streamPair = accessory.getStreams() else {
             return nil
         }
-        let input = InputStreamActor(inputStream)
-        let output = OutputStreamActor(outputStream)
-        return AsyncStreamPair(input: input, output: output)
+        var inputStreamActor: InputStreamActor?
+        var outputStreamActor: OutputStreamActor?
+        if let inputStream = streamPair.input {
+            inputStreamActor = InputStreamActor(inputStream)
+        }
+        if let outputStream = streamPair.output {
+            outputStreamActor = OutputStreamActor(outputStream)
+        }
+        return AsyncStreamPair(input: inputStreamActor, output: outputStreamActor)
     }
     
     private func connect(_ accessory: MockableAccessory) async {
         guard delegate?.shouldOpenSession(for: accessory) == true else {
             return
         }
-        guard let session = await openSession(accessory) else {
-            return
+        var readDataAsyncStream: AsyncThrowingStream<Data, Error>?
+        var writeReadyAsyncStream: AsyncThrowingStream<Bool, Error>?
+        let session = await openSession(accessory)
+        if let input = session?.input {
+            readDataAsyncStream = await input.getReadDataStream()
         }
-        let readDataAsyncStream = await session.input.getReadDataStream()
-        let writeReadyAsyncStream = await session.output.getSpaceAvailableStream()
+        if let output = session?.output {
+            writeReadyAsyncStream = await output.getSpaceAvailableStream()
+        }
         map[accessory] = session
-        delegate?.sessionDidOpen(for: accessory, writeReady: writeReadyAsyncStream, readData: readDataAsyncStream)
+        delegate?.sessionDidOpen(with: accessory, writeReadyStream: writeReadyAsyncStream, readDataStream: readDataAsyncStream)
     }
     
     private func disconnect(_ accessory: MockableAccessory) {

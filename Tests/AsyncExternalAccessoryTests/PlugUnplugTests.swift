@@ -48,7 +48,7 @@ final class PlugUnplugTests: XCTestCase {
     var mock: AccessoryMock!
     var accessory: MockableAccessory!
     var shouldOpenCompletion: ((MockableAccessory)->Bool)?
-    var didOpenCompletion: ((MockableAccessory, AsyncThrowingStream<Bool, Error>)->())?
+    var didOpenCompletion: ((MockableAccessory, AsyncThrowingStream<Bool, Error>?)->())?
     var timeoutTask: Task<(), Never>!
     
     override func setUp() async throws {
@@ -76,7 +76,7 @@ final class PlugUnplugTests: XCTestCase {
     func testColdPlug() async {
         await withTaskGroup(of: MockableAccessory.self) { taskGroup in
             taskGroup.addTask {
-                await withUnsafeContinuation { cont in
+                await withCheckedContinuation { cont in
                     self.shouldOpenCompletion = { accessory in
                         cont.resume(returning: accessory)
                         return true
@@ -84,7 +84,7 @@ final class PlugUnplugTests: XCTestCase {
                 }
             }
             taskGroup.addTask {
-                await withUnsafeContinuation { cont in
+                await withCheckedContinuation { cont in
                     self.didOpenCompletion = { accessory, _ in
                         cont.resume(returning: accessory)
                     }
@@ -106,7 +106,7 @@ final class PlugUnplugTests: XCTestCase {
         }
         await withTaskGroup(of: MockableAccessory.self) { taskGroup in
             taskGroup.addTask {
-                await withUnsafeContinuation { cont in
+                await withCheckedContinuation { cont in
                     self.shouldOpenCompletion = { accessory in
                         cont.resume(returning: accessory)
                         return false
@@ -127,36 +127,42 @@ final class PlugUnplugTests: XCTestCase {
         let accessoryA = try makeAccessory(makeMock())
         let accessoryB = try makeAccessory(makeMock())
         let accessories = [accessoryA, accessoryB]
-        await withTaskGroup(of: Void.self) { taskGroup in
+        let accessoryStreams = await withTaskGroup(of: [AsyncStream<MockableAccessory>].self) { taskGroup -> [AsyncStream<MockableAccessory>] in
             taskGroup.addTask {
-                var shouldOpenAccessories = [MockableAccessory]()
-                let shouldOpenStream = AsyncStream<Void> { cont in
+                [AsyncStream<MockableAccessory> { cont in
                     self.shouldOpenCompletion = { accessory in
-                        shouldOpenAccessories.append(accessory)
-                        if shouldOpenAccessories.count == accessories.count {
-                            cont.finish()
-                        }
+                        cont.yield(accessory)
                         return true
                     }
-                }
-                for await _ in shouldOpenStream {}
-                XCTAssert(Set(shouldOpenAccessories) == Set(accessories))
+                }]
             }
             taskGroup.addTask {
-                var didOpenAccessories = [MockableAccessory]()
-                let didOpenStream = AsyncStream<Void> { cont in
+                [AsyncStream<MockableAccessory> { cont in
                     self.didOpenCompletion = { accessory, _ in
-                        didOpenAccessories.append(accessory)
-                        if didOpenAccessories.count == accessories.count {
-                            cont.finish()
+                        cont.yield(accessory)
+                    }
+                }]
+            }
+            var accessoryStreams = [AsyncStream<MockableAccessory>]()
+            for await streamArray in taskGroup {
+                accessoryStreams.append(contentsOf: streamArray)
+            }
+            return accessoryStreams
+        }
+        await self.manager.connectToPresentAccessories(accessories)
+        await withTaskGroup(of: Void.self) { taskGroup in
+            for accessoryStream in accessoryStreams {
+                taskGroup.addTask {
+                    var foundAccessories = [MockableAccessory]()
+                    for await accessory in accessoryStream {
+                        foundAccessories.append(accessory)
+                        if foundAccessories.count == accessories.count {
+                            break
                         }
                     }
+                    print("found \(foundAccessories.count) accessories")
+                    XCTAssert(Set(foundAccessories) == Set(accessories))
                 }
-                for await _ in didOpenStream {}
-                XCTAssert(Set(didOpenAccessories) == Set(accessories))
-            }
-            taskGroup.addTask {
-                await self.manager.connectToPresentAccessories(accessories)
             }
             await taskGroup.waitForAll()
         }
@@ -186,7 +192,7 @@ final class PlugUnplugTests: XCTestCase {
     func testHotPlug() async {
         await withTaskGroup(of: MockableAccessory.self) { taskGroup in
             taskGroup.addTask {
-                await withUnsafeContinuation { cont in
+                await withCheckedContinuation { cont in
                     self.shouldOpenCompletion = { accessory in
                         cont.resume(returning: accessory)
                         return true
@@ -194,7 +200,7 @@ final class PlugUnplugTests: XCTestCase {
                 }
             }
             taskGroup.addTask {
-                await withUnsafeContinuation { cont in
+                await withCheckedContinuation { cont in
                     self.didOpenCompletion = { accessory, _ in
                         cont.resume(returning: accessory)
                     }
@@ -216,7 +222,7 @@ final class PlugUnplugTests: XCTestCase {
         await self.manager.listen()
         await withTaskGroup(of: Void.self) { taskGroup in
             taskGroup.addTask {
-                await withUnsafeContinuation { cont in
+                await withCheckedContinuation { cont in
                     self.shouldOpenCompletion = { accessory in
                         cont.resume()
                         return true
@@ -228,12 +234,16 @@ final class PlugUnplugTests: XCTestCase {
                 await self.manager.accessoryConnect(notification)
             }
             taskGroup.addTask {
-                let writeReadyStream = await withUnsafeContinuation { cont in
+                let optionalWriteReadyStream = await withCheckedContinuation { cont in
                     self.didOpenCompletion = { _, writeReady in
                         cont.resume(returning: writeReady)
                     }
                 }
                 do {
+                    guard let writeReadyStream = optionalWriteReadyStream else {
+                        XCTFail()
+                        return
+                    }
                     let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.mock as Any])
                     await self.manager.accessoryDisconnect(notification)
                     for try await _ in writeReadyStream {}
@@ -249,7 +259,7 @@ extension PlugUnplugTests: AccessoryConnectionDelegate {
     func shouldOpenSession(for accessory: MockableAccessory) -> Bool {
         shouldOpenCompletion?(accessory) ?? false
     }
-    func sessionDidOpen(for accessory: MockableAccessory, writeReady: AsyncThrowingStream<Bool, Error>, readData: AsyncThrowingStream<Data, Error>) {
-        didOpenCompletion?(accessory, writeReady)
+    func sessionDidOpen(with accessory: MockableAccessory, writeReadyStream: AsyncThrowingStream<Bool, Error>?, readDataStream: AsyncThrowingStream<Data, Error>?) {
+        didOpenCompletion?(accessory, writeReadyStream)
     }
 }

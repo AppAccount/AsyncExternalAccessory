@@ -24,6 +24,10 @@
 import ExternalAccessory
 
 public struct MockableAccessory: Hashable {
+    struct StreamPair {
+        let input: InputStream?
+        let output: OutputStream?
+    }
     enum ExternalAccessoryOrMock: Equatable, Hashable {
         case ea(EAAccessory), mock(AccessoryMock)
     }
@@ -44,19 +48,17 @@ public struct MockableAccessory: Hashable {
             return nil
         }
     }
-    func getStreams()-> (InputStream, OutputStream)? {
+    func getStreams()-> StreamPair? {
         switch accessory {
         case .ea(let accessory): return getEAStreams(accessory)
-        case .mock(let accessory): return (accessory.inputStream, accessory.outputStream)
+        case .mock(let accessory): return StreamPair(input: accessory.inputStream, output: accessory.outputStream)
         }
     }
     
-    func getEAStreams(_ accessory: EAAccessory)-> (InputStream, OutputStream)? {
+    func getEAStreams(_ accessory: EAAccessory)-> StreamPair? {
         for protocolString in accessory.protocolStrings {
-            if let session = EASession(accessory: accessory, forProtocol: protocolString),
-               let inputStream = session.inputStream,
-               let outputStream = session.outputStream {
-                return (inputStream, outputStream)
+            if let session = EASession(accessory: accessory, forProtocol: protocolString) {
+                return StreamPair(input: session.inputStream, output: session.outputStream)
             }
         }
         return nil
