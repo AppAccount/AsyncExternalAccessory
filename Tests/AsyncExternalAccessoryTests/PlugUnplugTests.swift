@@ -38,29 +38,32 @@ func makeMock() throws -> AccessoryMock {
     return AccessoryMock(name: "EMAN", modelNumber: "LEDOM", serialNumber: "001", manufacturer: "GFM", hardwareRevision: "1.0", protocolStrings: ["com.example.eap"], connectionID: Int.random(in: 0..<Int.max), inputStream: inputStream, outputStream: outputStream)
 }
 
-func makeAccessory(_ mock: AccessoryMock) throws -> MockableAccessory {
-    return MockableAccessory(mock)
-}
-
 final class PlugUnplugTests: XCTestCase {
-    static let testTimeout: UInt64 = 2_000_000_000
+#if os(macOS)
+    /// on macOS Monterey, `getBoundStreams` derived streams sometimes incur a 5s-15s startup delay
+    static let testTimeout: UInt64 = 30_000_000_000
+#else
+    static let testTimeout: UInt64 = 3_000_000_000
+#endif
     var manager: ExternalAccessoryManager!
-    var mock: AccessoryMock!
-    var accessory: MockableAccessory!
-    var shouldOpenCompletion: ((MockableAccessory)->Bool)?
-    var didOpenCompletion: ((MockableAccessory, AsyncThrowingStream<Bool, Error>?)->())?
+    var accessory: AccessoryMock!
+    var shouldOpenCompletion: ((AccessoryMock)->Bool)?
+    var didOpenCompletion: ((AccessoryMock, DuplexAsyncStream?)->())?
     var timeoutTask: Task<(), Never>!
     
     override func setUp() async throws {
         continueAfterFailure = false
-        mock = try makeMock()
-        accessory = try makeAccessory(mock)
+        accessory = try makeMock()
         self.manager = ExternalAccessoryManager()
         await manager.set(self)
         timeoutTask = Task {
             do {
                 try await Task.sleep(nanoseconds: Self.testTimeout)
             } catch {
+                guard error is CancellationError else {
+                    XCTFail("can't start timer")
+                    return
+                }
                 return
             }
             XCTFail("timed out")
@@ -74,7 +77,7 @@ final class PlugUnplugTests: XCTestCase {
     }
     
     func testColdPlug() async {
-        await withTaskGroup(of: MockableAccessory.self) { taskGroup in
+        await withTaskGroup(of: AccessoryMock.self) { taskGroup in
             taskGroup.addTask {
                 await withCheckedContinuation { cont in
                     self.shouldOpenCompletion = { accessory in
@@ -104,7 +107,7 @@ final class PlugUnplugTests: XCTestCase {
         self.didOpenCompletion = { _, _ in
             XCTFail("shouldn't be called")
         }
-        await withTaskGroup(of: MockableAccessory.self) { taskGroup in
+        await withTaskGroup(of: AccessoryMock.self) { taskGroup in
             taskGroup.addTask {
                 await withCheckedContinuation { cont in
                     self.shouldOpenCompletion = { accessory in
@@ -124,12 +127,12 @@ final class PlugUnplugTests: XCTestCase {
     }
     
     func testMultiAccessoryColdPlug() async throws {
-        let accessoryA = try makeAccessory(makeMock())
-        let accessoryB = try makeAccessory(makeMock())
+        let accessoryA = try makeMock()
+        let accessoryB = try makeMock()
         let accessories = [accessoryA, accessoryB]
-        let accessoryStreams = await withTaskGroup(of: [AsyncStream<MockableAccessory>].self) { taskGroup -> [AsyncStream<MockableAccessory>] in
+        let accessoryStreams = await withTaskGroup(of: [AsyncStream<AccessoryMock>].self) { taskGroup -> [AsyncStream<AccessoryMock>] in
             taskGroup.addTask {
-                [AsyncStream<MockableAccessory> { cont in
+                [AsyncStream<AccessoryMock> { cont in
                     self.shouldOpenCompletion = { accessory in
                         cont.yield(accessory)
                         return true
@@ -137,13 +140,13 @@ final class PlugUnplugTests: XCTestCase {
                 }]
             }
             taskGroup.addTask {
-                [AsyncStream<MockableAccessory> { cont in
+                [AsyncStream<AccessoryMock> { cont in
                     self.didOpenCompletion = { accessory, _ in
                         cont.yield(accessory)
                     }
                 }]
             }
-            var accessoryStreams = [AsyncStream<MockableAccessory>]()
+            var accessoryStreams = [AsyncStream<AccessoryMock>]()
             for await streamArray in taskGroup {
                 accessoryStreams.append(contentsOf: streamArray)
             }
@@ -153,7 +156,7 @@ final class PlugUnplugTests: XCTestCase {
         await withTaskGroup(of: Void.self) { taskGroup in
             for accessoryStream in accessoryStreams {
                 taskGroup.addTask {
-                    var foundAccessories = [MockableAccessory]()
+                    var foundAccessories = [AccessoryMock]()
                     for await accessory in accessoryStream {
                         foundAccessories.append(accessory)
                         if foundAccessories.count == accessories.count {
@@ -168,29 +171,34 @@ final class PlugUnplugTests: XCTestCase {
         }
     }
     
-    func testColdPlugUnplug() async {
-        var writeReadyStream: AsyncThrowingStream<Bool, Error>?
+    func testColdPlugUnplug() async throws {
+        var duplexStream: DuplexAsyncStream?
         self.shouldOpenCompletion = { accessory in
             return true
         }
-        self.didOpenCompletion = { _, writeReady in
-            writeReadyStream = writeReady
+        self.didOpenCompletion = { _, duplex in
+            duplexStream = duplex
         }
         await self.manager.connectToPresentAccessories([self.accessory])
         await self.manager.listen()
-        do {
-            let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.mock as Any])
-            await self.manager.accessoryDisconnect(notification)
-            for try await ready in writeReadyStream! {
-                XCTAssert(ready == true)
-            }
-        } catch {
+        guard let duplex = duplexStream else {
             XCTFail()
+            return
+        }
+        let readDataStream = await duplex.input.getReadDataStream()
+        try await withThrowingTaskGroup(of: Void.self) { taskGroup in
+            taskGroup.addTask {
+                for try await _ in readDataStream {}
+            }
+            taskGroup.addTask {
+                duplex.input.stream(self.accessory.inputStream, handle: Stream.Event.endEncountered)
+            }
+            try await taskGroup.waitForAll()
         }
     }
     
     func testHotPlug() async {
-        await withTaskGroup(of: MockableAccessory.self) { taskGroup in
+        await withTaskGroup(of: AccessoryMock.self) { taskGroup in
             taskGroup.addTask {
                 await withCheckedContinuation { cont in
                     self.shouldOpenCompletion = { accessory in
@@ -208,7 +216,7 @@ final class PlugUnplugTests: XCTestCase {
             }
             taskGroup.addTask {
                 await self.manager.listen()
-                let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.mock as Any])
+                let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.accessory as Any])
                 await self.manager.accessoryConnect(notification)
                 return self.accessory
             }
@@ -218,48 +226,59 @@ final class PlugUnplugTests: XCTestCase {
         }
     }
     
-    func testHotPlugUnplug() async {
-        await self.manager.listen()
-        await withTaskGroup(of: Void.self) { taskGroup in
+    func testHotPlugUnplug() async throws {
+        let optionalDuplexStream = await withTaskGroup(of: Optional<DuplexAsyncStream>.self) { taskGroup -> Optional<DuplexAsyncStream> in
             taskGroup.addTask {
                 await withCheckedContinuation { cont in
                     self.shouldOpenCompletion = { accessory in
-                        cont.resume()
+                        cont.resume(returning: nil)
                         return true
                     }
                 }
             }
             taskGroup.addTask {
-                let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.mock as Any])
-                await self.manager.accessoryConnect(notification)
+                await withCheckedContinuation { cont in
+                    self.didOpenCompletion = { accessory, duplex in
+                        cont.resume(returning: duplex)
+                    }
+                }
             }
             taskGroup.addTask {
-                let optionalWriteReadyStream = await withCheckedContinuation { cont in
-                    self.didOpenCompletion = { _, writeReady in
-                        cont.resume(returning: writeReady)
-                    }
-                }
-                do {
-                    guard let writeReadyStream = optionalWriteReadyStream else {
-                        XCTFail()
-                        return
-                    }
-                    let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.mock as Any])
-                    await self.manager.accessoryDisconnect(notification)
-                    for try await _ in writeReadyStream {}
-                } catch {
-                    XCTFail()
-                }
+                await self.manager.listen()
+                let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.accessory as Any])
+                await self.manager.accessoryConnect(notification)
+                return nil
             }
+            var duplex: DuplexAsyncStream?
+            for await stream in taskGroup.compactMap({ $0 }) {
+                duplex = stream
+            }
+            return duplex
         }
+        guard let duplex = optionalDuplexStream else {
+            XCTFail()
+            return
+        }
+        let readDataStream = await duplex.input.getReadDataStream()
+        try await withThrowingTaskGroup(of: Void.self, body: { taskGroup in
+            taskGroup.addTask {
+                //let notification = NSNotification(name: .EAAccessoryDidConnect, object: nil, userInfo: [EAAccessoryKey: self.accessory as Any])
+                //await self.manager.accessoryDisconnect(notification)
+                duplex.input.stream(self.accessory.inputStream, handle: Stream.Event.endEncountered)
+            }
+            taskGroup.addTask {
+                for try await _ in readDataStream {}
+            }
+            try await taskGroup.waitForAll()
+        })
     }
 }
 
 extension PlugUnplugTests: AccessoryConnectionDelegate {
-    func shouldOpenSession(for accessory: MockableAccessory) -> Bool {
-        shouldOpenCompletion?(accessory) ?? false
+    func shouldOpenSession(for accessory: AccessoryProtocol) -> Bool {
+        shouldOpenCompletion?(accessory as! AccessoryMock) ?? false
     }
-    func sessionDidOpen(with accessory: MockableAccessory, writeReadyStream: AsyncThrowingStream<Bool, Error>?, readDataStream: AsyncThrowingStream<Data, Error>?) {
-        didOpenCompletion?(accessory, writeReadyStream)
+    func sessionDidOpen(for accessory: AccessoryProtocol, session: DuplexAsyncStream?) {
+        didOpenCompletion?(accessory as! AccessoryMock, session)
     }
 }

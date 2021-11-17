@@ -1,4 +1,4 @@
-//  AccessoryIdentity.swift
+//  AccessoryProtocol.swift
 //
 //  Created by Yuval Koren on 10/29/21.
 //  Copyright © 2021 Appcessori Corporation.
@@ -23,14 +23,60 @@
 
 import ExternalAccessory
 
-public struct AccessoryMock {
-    let name: String
-    let modelNumber: String
-    let serialNumber: String
-    let manufacturer: String
-    let hardwareRevision: String
-    let protocolStrings: [String]
-    let connectionID: Int
+public struct DuplexStream {
+    let input: InputStream?
+    let output: OutputStream?
+}
+
+public struct AccessoryIdentity: Equatable {
+    public let name: String
+    public let modelNumber: String
+    public let serialNumber: String
+    public let manufacturer: String
+    public let hardwareRevision: String
+    public let protocolStrings: [String]
+    public let connectionID: Int
+}
+
+public protocol AccessoryProtocol {
+    var name: String { get }
+    var modelNumber: String { get }
+    var serialNumber: String { get }
+    var manufacturer: String { get }
+    var hardwareRevision: String { get }
+    var protocolStrings: [String] { get }
+    var connectionID: Int { get }
+    func getStreams()-> DuplexStream?
+}
+
+extension NSNotification {
+    func findAccessory()-> AccessoryProtocol? {
+        guard let accessory = userInfo![EAAccessoryKey] as? AccessoryProtocol else {
+            return nil
+        }
+        return accessory
+    }
+}
+
+extension EAAccessory: AccessoryProtocol {
+    public func getStreams()-> DuplexStream? {
+        for protocolString in protocolStrings {
+            if let session = EASession(accessory: self, forProtocol: protocolString) {
+                return DuplexStream(input: session.inputStream, output: session.outputStream)
+            }
+        }
+        return nil
+    }
+}
+
+public struct AccessoryMock: AccessoryProtocol {
+    public let name: String
+    public let modelNumber: String
+    public let serialNumber: String
+    public let manufacturer: String
+    public let hardwareRevision: String
+    public let protocolStrings: [String]
+    public let connectionID: Int
     let inputStream: InputStream
     let outputStream: OutputStream
     
@@ -44,6 +90,10 @@ public struct AccessoryMock {
         self.connectionID = connectionID
         self.inputStream = inputStream
         self.outputStream = outputStream
+    }
+    
+    public func getStreams() -> DuplexStream? {
+        DuplexStream(input: inputStream, output: outputStream)
     }
 }
 

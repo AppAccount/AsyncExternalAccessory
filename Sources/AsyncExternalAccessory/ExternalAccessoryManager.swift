@@ -24,9 +24,9 @@
 import ExternalAccessory
 import AsyncStream
 
-public enum ExternalAccessoryManagerError: Error {
-    case UnknownAccessory
-    case StreamNotOpen
+public struct DuplexAsyncStream {
+    public let input: InputStreamActor
+    public let output: OutputStreamActor
 }
 
 /// A delegate to listen for accessory connection events.
@@ -34,36 +34,21 @@ public protocol AccessoryConnectionDelegate: AnyObject {
     /// Inspect the arriving accessory and determine whether to open read and write sessions for it.
     /// - Return `true` to request that session be opened, `false` to ignore.
     /// - If `true` is returned,`sessionDidOpen` will be called next.
-    func shouldOpenSession(for accessory: MockableAccessory) -> Bool
-    /// Receive write backpressure stream and read data stream. Both are optional, reflecting the behavior of the underlying EASession.
-    /// - writeReadyStream will finish when the accessory has disconnected.
-    func sessionDidOpen(with accessory: MockableAccessory, writeReadyStream: AsyncThrowingStream<Bool, Error>?, readDataStream: AsyncThrowingStream<Data, Error>?)
+    func shouldOpenSession(for accessory: AccessoryProtocol) -> Bool
+    /// Receive input (read) and output (write) AsyncStreams for access to the underlying EA sessions
+    func sessionDidOpen(for accessory: AccessoryProtocol, session: DuplexAsyncStream?)
+    /// additional close/disconnect method?
 }
 
 public actor ExternalAccessoryManager: NSObject {
-    struct AsyncStreamPair {
-        let input: InputStreamActor?
-        let output: OutputStreamActor?
-    }
     private weak var delegate: AccessoryConnectionDelegate?
-    private var map = [MockableAccessory: AsyncStreamPair]()
     
     @MainActor
     @objc dynamic public func accessoryConnect(_ notificaton: NSNotification) {
         print(#function)
-        if let accessory = MockableAccessory.init(from: notificaton) {
+        if let accessory = notificaton.findAccessory() {
             Task.detached {
                 await self.connect(accessory)
-            }
-        }
-    }
-    
-    @MainActor
-    @objc dynamic public func accessoryDisconnect(_ notificaton: NSNotification) {
-        print(#function)
-        if let accessory = MockableAccessory.init(from: notificaton) {
-            Task.detached {
-                await self.disconnect(accessory)
             }
         }
     }
@@ -72,7 +57,7 @@ public actor ExternalAccessoryManager: NSObject {
         self.delegate = delegate
     }
     
-    public func connectToPresentAccessories(_ list: [MockableAccessory]) async {
+    public func connectToPresentAccessories(_ list: [AccessoryProtocol]) async {
         for accessory in list {
             await connect(accessory)
         }
@@ -81,60 +66,33 @@ public actor ExternalAccessoryManager: NSObject {
     public func connectToPresentAccessories() async {
         let list = EAAccessoryManager.shared().connectedAccessories
         for accessory in list {
-            await connect(MockableAccessory(accessory))
+            await connect(accessory)
         }
     }
     
     public func listen() async {
         NotificationCenter.default.addObserver(self, selector: #selector(accessoryConnect(_:)), name: .EAAccessoryDidConnect, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(accessoryDisconnect(_:)), name: .EAAccessoryDidDisconnect, object: nil)
         EAAccessoryManager.shared().registerForLocalNotifications()
     }
     
-    public func write(_ data: Data, to accessory: MockableAccessory) async throws -> Int {
-        guard let streamPair = map[accessory] else {
-            throw ExternalAccessoryManagerError.UnknownAccessory
-        }
-        guard let output = streamPair.output else {
-            throw ExternalAccessoryManagerError.StreamNotOpen
-        }
-        return try await output.write(data)
-    }
-    
     @MainActor
-    private func openSession(_ accessory: MockableAccessory) -> AsyncStreamPair? {
-        guard let streamPair = accessory.getStreams() else {
+    private func openSession(_ accessory: AccessoryProtocol) -> DuplexAsyncStream? {
+        guard let duplexStream = accessory.getStreams() else {
             return nil
         }
-        var inputStreamActor: InputStreamActor?
-        var outputStreamActor: OutputStreamActor?
-        if let inputStream = streamPair.input {
-            inputStreamActor = InputStreamActor(inputStream)
+        guard let inputStream = duplexStream.input, let outputStream = duplexStream.output else {
+            return nil
         }
-        if let outputStream = streamPair.output {
-            outputStreamActor = OutputStreamActor(outputStream)
-        }
-        return AsyncStreamPair(input: inputStreamActor, output: outputStreamActor)
+        let inputStreamActor = InputStreamActor(inputStream)
+        let outputStreamActor = OutputStreamActor(outputStream)
+        return DuplexAsyncStream(input: inputStreamActor, output: outputStreamActor)
     }
     
-    private func connect(_ accessory: MockableAccessory) async {
+    private func connect(_ accessory: AccessoryProtocol) async {
         guard delegate?.shouldOpenSession(for: accessory) == true else {
             return
         }
-        var readDataAsyncStream: AsyncThrowingStream<Data, Error>?
-        var writeReadyAsyncStream: AsyncThrowingStream<Bool, Error>?
         let session = await openSession(accessory)
-        if let input = session?.input {
-            readDataAsyncStream = await input.getReadDataStream()
-        }
-        if let output = session?.output {
-            writeReadyAsyncStream = await output.getSpaceAvailableStream()
-        }
-        map[accessory] = session
-        delegate?.sessionDidOpen(with: accessory, writeReadyStream: writeReadyAsyncStream, readDataStream: readDataAsyncStream)
-    }
-    
-    private func disconnect(_ accessory: MockableAccessory) {
-        map[accessory] = nil
+        delegate?.sessionDidOpen(for: accessory, session: session)
     }
 }

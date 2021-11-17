@@ -28,24 +28,25 @@ import ExternalAccessory
 final class ReadWriteTests: XCTestCase {
     static let testTimeout: UInt64 = 2_000_000_000
     var manager: ExternalAccessoryManager!
-    var mock: AccessoryMock!
-    var accessory: MockableAccessory!
-    var shouldOpenCompletion: ((MockableAccessory)->Bool)?
-    var didOpenCompletion: ((MockableAccessory, AsyncThrowingStream<Bool, Error>?, AsyncThrowingStream<Data, Error>?)->())?
-    var writeReadyStream: AsyncThrowingStream<Bool, Error>?
-    var readDataStream: AsyncThrowingStream<Data, Error>?
+    var accessory: AccessoryMock!
+    var shouldOpenCompletion: ((AccessoryMock)->Bool)?
+    var didOpenCompletion: ((AccessoryMock, DuplexAsyncStream?)->())?
+    var duplexAsyncStream: DuplexAsyncStream?
     var timeoutTask: Task<(), Never>!
     
     override func setUp() async throws {
         continueAfterFailure = false
-        mock = try makeMock()
-        accessory = try makeAccessory(mock)
+        accessory = try makeMock()
         self.manager = ExternalAccessoryManager()
         await manager.set(self)
         timeoutTask = Task {
             do {
                 try await Task.sleep(nanoseconds: Self.testTimeout)
             } catch {
+                guard error is CancellationError else {
+                    XCTFail("can't start timer")
+                    return
+                }
                 return
             }
             XCTFail("timed out")
@@ -53,67 +54,58 @@ final class ReadWriteTests: XCTestCase {
         self.shouldOpenCompletion = { accessory in
             return true
         }
-        self.didOpenCompletion = { _, writeReady, readData in
-            self.writeReadyStream = writeReady
-            self.readDataStream = readData
+        Task {
+            await self.manager.connectToPresentAccessories([self.accessory])
+        }
+        self.duplexAsyncStream = await withCheckedContinuation { cont in
+            self.didOpenCompletion = { _, duplex in
+                cont.resume(returning: duplex)
+            }
         }
     }
     
     override func tearDown() {
         shouldOpenCompletion = nil
         didOpenCompletion = nil
+        duplexAsyncStream = nil
         timeoutTask.cancel()
     }
     
-    func testShortWrite() async throws {
+    func testShortWriteAndRead() async throws {
         let size = 16
-        await self.manager.connectToPresentAccessories([self.accessory])
+        guard let duplex = self.duplexAsyncStream else {
+            XCTFail()
+            return
+        }
         try await withThrowingTaskGroup(of: Bool.self) { taskGroup in
             taskGroup.addTask {
-                for try await data in self.readDataStream! {
+                let readDataStream = await duplex.input.getReadDataStream()
+                for try await data in readDataStream {
                     let bytesRead = data.count
                     return(bytesRead == size)
                 }
                 return false
             }
             taskGroup.addTask {
-                for try await ready in self.writeReadyStream! {
-                    XCTAssert(ready == true)
-                    let bytesWritten = try await self.manager.write(Data.init(count: size), to: self.accessory)
-                    return(bytesWritten == size)
+                let writeDataStream = AsyncStream<Data> { continuation in
+                    let data = Data.init(count: size)
+                    continuation.yield(data)
                 }
-                return false
+                await duplex.output.setWriteDataStream(writeDataStream)
+                return true
             }
             if try await taskGroup.allSatisfy({ $0 }) != true {
                 XCTFail()
             }
         }
     }
-    
-    func testWriteToInvalidAccessory() async throws {
-        let size = 16
-        let invalidAccessory = try makeAccessory(makeMock())
-        await self.manager.connectToPresentAccessories([self.accessory])
-        do {
-            for try await ready in writeReadyStream! {
-                XCTAssert(ready == true)
-                let _ = try await manager.write(Data.init(count: size), to: invalidAccessory)
-                XCTFail("Expecting exception")
-            }
-        } catch (let error) {
-            guard let e = error as? ExternalAccessoryManagerError, e == .UnknownAccessory else {
-                XCTFail("Unexpected exception \(error)")
-                return
-            }
-        }
-    }
 }
 
 extension ReadWriteTests: AccessoryConnectionDelegate {
-    func shouldOpenSession(for accessory: MockableAccessory) -> Bool {
-        shouldOpenCompletion?(accessory) ?? false
+    func shouldOpenSession(for accessory: AccessoryProtocol) -> Bool {
+        shouldOpenCompletion?(accessory as! AccessoryMock) ?? false
     }
-    func sessionDidOpen(with accessory: MockableAccessory, writeReadyStream: AsyncThrowingStream<Bool, Error>?, readDataStream: AsyncThrowingStream<Data, Error>?) {
-        didOpenCompletion?(accessory, writeReadyStream, readDataStream)
+    func sessionDidOpen(for accessory: AccessoryProtocol, session: DuplexAsyncStream?) {
+        didOpenCompletion?(accessory as! AccessoryMock, session)
     }
 }
