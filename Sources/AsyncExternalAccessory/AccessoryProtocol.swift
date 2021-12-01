@@ -24,8 +24,8 @@
 import ExternalAccessory
 
 public struct DuplexStream {
-    let input: InputStream?
-    let output: OutputStream?
+    public let input: InputStream?
+    public let output: OutputStream?
 }
 
 public struct AccessoryIdentity: Equatable {
@@ -66,52 +66,5 @@ extension EAAccessory: AccessoryProtocol {
             }
         }
         return nil
-    }
-}
-
-public struct AccessoryMock: AccessoryProtocol {
-    public let name: String
-    public let modelNumber: String
-    public let serialNumber: String
-    public let manufacturer: String
-    public let hardwareRevision: String
-    public let protocolStrings: [String]
-    public let connectionID: Int
-    let inputStream: InputStream
-    let outputStream: OutputStream
-    
-    public init(name: String, modelNumber: String, serialNumber: String, manufacturer: String, hardwareRevision: String, protocolStrings: [String], connectionID: Int, inputStream: InputStream, outputStream: OutputStream) {
-        self.name = name
-        self.modelNumber = modelNumber
-        self.serialNumber = serialNumber
-        self.manufacturer = manufacturer
-        self.hardwareRevision = hardwareRevision
-        self.protocolStrings = protocolStrings
-        self.connectionID = connectionID
-        self.inputStream = inputStream
-        self.outputStream = outputStream
-    }
-    
-    public func getStreams() -> DuplexStream? {
-        DuplexStream(input: inputStream, output: outputStream)
-    }
-}
-
-extension AccessoryMock {
-    func same(_ other: AccessoryMock) -> Bool {
-        return self.serialNumber == other.serialNumber && self.name == other.name
-    }
-}
-
-extension AccessoryMock: Equatable {
-    public static func == (lhs: AccessoryMock, rhs: AccessoryMock) -> Bool {
-        return lhs.serialNumber == rhs.serialNumber && lhs.name == rhs.name && lhs.connectionID == rhs.connectionID
-    }
-}
-
-extension AccessoryMock: Hashable {
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(serialNumber)
-        hasher.combine(name)
     }
 }
