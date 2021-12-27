@@ -52,7 +52,7 @@ public struct AccessoryMock: AccessoryProtocol {
 }
 
 extension AccessoryMock {
-    func same(_ other: AccessoryMock) -> Bool {
+    public func same(_ other: AccessoryProtocol) -> Bool {
         return self.serialNumber == other.serialNumber && self.name == other.name
     }
 }

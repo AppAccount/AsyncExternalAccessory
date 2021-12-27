@@ -27,7 +27,7 @@ import ExternalAccessory
 
 extension String: Error {}
 
-func makeMock() throws -> AccessoryMock {
+func makeMock(serialNumber: String="001") throws -> AccessoryMock {
     let streamBufferSize = 4096
     var optionalInputStream: InputStream?
     var optionalOutputStream: OutputStream?
@@ -35,7 +35,7 @@ func makeMock() throws -> AccessoryMock {
     guard let inputStream = optionalInputStream, let outputStream = optionalOutputStream else {
         throw "can't initialize bound streams"
     }
-    return AccessoryMock(name: "EMAN", modelNumber: "LEDOM", serialNumber: "001", manufacturer: "GFM", hardwareRevision: "1.0", protocolStrings: ["com.example.eap"], connectionID: Int.random(in: 0..<Int.max), inputStream: inputStream, outputStream: outputStream)
+    return AccessoryMock(name: "EMAN", modelNumber: "LEDOM", serialNumber: serialNumber, manufacturer: "GFM", hardwareRevision: "1.0", protocolStrings: ["com.example.eap"], connectionID: Int.random(in: 0..<Int.max), inputStream: inputStream, outputStream: outputStream)
 }
 
 final class PlugUnplugTests: XCTestCase {
@@ -271,6 +271,15 @@ final class PlugUnplugTests: XCTestCase {
             }
             try await taskGroup.waitForAll()
         })
+    }
+    
+    func testSameAccessory() async throws {
+        let accessoryA = try makeMock()
+        let accessoryB = try makeMock()
+        XCTAssert(accessoryA.same(accessoryB))
+        XCTAssert(accessoryB.same(accessoryA))
+        let accessoryC = try makeMock(serialNumber: "101")
+        XCTAssert(accessoryA.same(accessoryC) == false)
     }
 }
 

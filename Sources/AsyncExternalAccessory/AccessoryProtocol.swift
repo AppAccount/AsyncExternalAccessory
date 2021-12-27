@@ -28,16 +28,6 @@ public struct DuplexStream {
     public let output: OutputStream?
 }
 
-public struct AccessoryIdentity: Equatable {
-    public let name: String
-    public let modelNumber: String
-    public let serialNumber: String
-    public let manufacturer: String
-    public let hardwareRevision: String
-    public let protocolStrings: [String]
-    public let connectionID: Int
-}
-
 public protocol AccessoryProtocol {
     var name: String { get }
     var modelNumber: String { get }
@@ -46,11 +36,12 @@ public protocol AccessoryProtocol {
     var hardwareRevision: String { get }
     var protocolStrings: [String] { get }
     var connectionID: Int { get }
-    func getStreams()-> DuplexStream?
+    func getStreams() -> DuplexStream?
+    func same(_: AccessoryProtocol) -> Bool
 }
 
 extension NSNotification {
-    func findAccessory()-> AccessoryProtocol? {
+    func findAccessory() -> AccessoryProtocol? {
         guard let accessory = userInfo![EAAccessoryKey] as? AccessoryProtocol else {
             return nil
         }
@@ -59,12 +50,15 @@ extension NSNotification {
 }
 
 extension EAAccessory: AccessoryProtocol {
-    public func getStreams()-> DuplexStream? {
+    public func getStreams() -> DuplexStream? {
         for protocolString in protocolStrings {
             if let session = EASession(accessory: self, forProtocol: protocolString) {
                 return DuplexStream(input: session.inputStream, output: session.outputStream)
             }
         }
         return nil
+    }
+    public func same(_ other: AccessoryProtocol)-> Bool {
+        self.serialNumber == other.serialNumber
     }
 }
