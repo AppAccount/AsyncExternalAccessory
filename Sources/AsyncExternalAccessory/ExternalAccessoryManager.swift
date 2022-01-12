@@ -47,7 +47,7 @@ public actor ExternalAccessoryManager: NSObject {
     @objc dynamic public func accessoryConnect(_ notificaton: NSNotification) {
         print(#function)
         if let accessory = notificaton.findAccessory() {
-            Task.detached {
+            Task {
                 await self.connect(accessory)
             }
         }
