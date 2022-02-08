@@ -35,7 +35,7 @@ func makeMock(serialNumber: String="001") throws -> AccessoryMock {
     guard let inputStream = optionalInputStream, let outputStream = optionalOutputStream else {
         throw "can't initialize bound streams"
     }
-    return AccessoryMock(name: "EMAN", modelNumber: "LEDOM", serialNumber: serialNumber, manufacturer: "GFM", hardwareRevision: "1.0", protocolStrings: ["com.example.eap"], connectionID: Int.random(in: 0..<Int.max), inputStream: inputStream, outputStream: outputStream)
+    return AccessoryMock(name: "EMAN", modelNumber: "LEDOM", serialNumber: serialNumber, manufacturer: "GFM", firmwareRevision: "0.5.1", hardwareRevision: "1.0", protocolStrings: ["com.example.eap"], connectionID: Int.random(in: 0..<Int.max), inputStream: inputStream, outputStream: outputStream)
 }
 
 final class PlugUnplugTests: XCTestCase {

@@ -33,6 +33,7 @@ public protocol AccessoryProtocol {
     var modelNumber: String { get }
     var serialNumber: String { get }
     var manufacturer: String { get }
+    var firmwareRevision: String { get }
     var hardwareRevision: String { get }
     var protocolStrings: [String] { get }
     var connectionID: Int { get }

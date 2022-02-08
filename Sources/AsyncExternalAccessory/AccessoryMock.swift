@@ -28,17 +28,19 @@ public struct AccessoryMock: AccessoryProtocol {
     public let modelNumber: String
     public let serialNumber: String
     public let manufacturer: String
+    public let firmwareRevision: String
     public let hardwareRevision: String
     public let protocolStrings: [String]
     public let connectionID: Int
     let inputStream: InputStream
     let outputStream: OutputStream
     
-    public init(name: String, modelNumber: String, serialNumber: String, manufacturer: String, hardwareRevision: String, protocolStrings: [String], connectionID: Int, inputStream: InputStream, outputStream: OutputStream) {
+    public init(name: String, modelNumber: String, serialNumber: String, manufacturer: String, firmwareRevision: String, hardwareRevision: String, protocolStrings: [String], connectionID: Int, inputStream: InputStream, outputStream: OutputStream) {
         self.name = name
         self.modelNumber = modelNumber
         self.serialNumber = serialNumber
         self.manufacturer = manufacturer
+        self.firmwareRevision = firmwareRevision
         self.hardwareRevision = hardwareRevision
         self.protocolStrings = protocolStrings
         self.connectionID = connectionID
